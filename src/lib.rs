@@ -342,7 +342,18 @@ const MAX_ACK_RANGES: usize = 68;
 const MAX_STREAM_ID: u64 = 1 << 60;
 
 // The default max_datagram_size used in congestion control.
-const MAX_SEND_UDP_PAYLOAD_SIZE: usize = 1200;
+//
+// This has been adjusted to try and match the observed TCP MSS as closely as
+// possible for testing. It has been set to a value equal to MSS plus the best
+// estimate for the size of the short-form QUIC headers. The latter is assumed
+// to be:
+//
+//  1-byte preamble + 4-byte packet number + 0-byte DCID
+//
+// where DCID-length is based on transport-info headers in prior tests. The TCP
+// MSS has been observed to be 1448 bytes, therefore we set this value to the
+// result of 1448 + 1 + 4 = 1453.
+const MAX_SEND_UDP_PAYLOAD_SIZE: usize = 1453;
 
 // The default length of DATAGRAM queues.
 const DEFAULT_MAX_DGRAM_QUEUE_LEN: usize = 0;
@@ -9689,7 +9700,7 @@ mod tests {
         config.set_initial_max_data(50000);
         config.set_initial_max_stream_data_bidi_local(50000);
         config.set_initial_max_stream_data_bidi_remote(50000);
-        config.set_max_recv_udp_payload_size(1405);
+        config.set_max_recv_udp_payload_size(1460);
         config.verify_peer(false);
 
         let mut pipe = testing::Pipe::with_client_config(&mut config).unwrap();
@@ -9706,7 +9717,7 @@ mod tests {
 
         // Server sends stream data bigger than cwnd.
         let send_buf1 = [0; 20000];
-        assert_eq!(pipe.server.stream_send(0, &send_buf1, false), Ok(12000));
+        assert_eq!(pipe.server.stream_send(0, &send_buf1, false), Ok(MAX_SEND_UDP_PAYLOAD_SIZE * 10));
 
         testing::emit_flight(&mut pipe.server).ok();
 
@@ -9724,7 +9735,7 @@ mod tests {
         config.set_initial_max_data(50000);
         config.set_initial_max_stream_data_bidi_local(50000);
         config.set_initial_max_stream_data_bidi_remote(50000);
-        config.set_max_recv_udp_payload_size(1406);
+        config.set_max_recv_udp_payload_size(1500);
         config.verify_peer(false);
 
         let mut pipe = testing::Pipe::with_client_config(&mut config).unwrap();
@@ -9741,7 +9752,7 @@ mod tests {
 
         // Server sends stream data bigger than cwnd.
         let send_buf1 = [0; 20000];
-        assert_eq!(pipe.server.stream_send(0, &send_buf1, false), Ok(12000));
+        assert_eq!(pipe.server.stream_send(0, &send_buf1, false), Ok(MAX_SEND_UDP_PAYLOAD_SIZE * 10));
 
         testing::emit_flight(&mut pipe.server).ok();
 
@@ -10428,7 +10439,7 @@ mod tests {
 
         // Client sends second flight.
         let (len, _) = pipe.client.send(&mut buf).unwrap();
-        assert_eq!(len, MIN_CLIENT_INITIAL_LEN);
+        assert_eq!(len, MAX_SEND_UDP_PAYLOAD_SIZE);
         assert_eq!(pipe.server_recv(&mut buf[..len]), Ok(len));
 
         // None of the sent packets should have been dropped.
@@ -10812,7 +10823,7 @@ mod tests {
         config.set_initial_max_streams_bidi(3);
         config.set_initial_max_streams_uni(3);
         config.enable_dgram(true, 10, 10);
-        config.set_max_recv_udp_payload_size(1452);
+        config.set_max_recv_udp_payload_size(1460);
         config.verify_peer(false);
 
         let mut pipe = testing::Pipe::with_config(&mut config).unwrap();
@@ -10826,7 +10837,7 @@ mod tests {
 
         // Tests use a 16-byte connection ID, so the max datagram frame payload
         // size is (1200 byte-long packet - 40 bytes overhead)
-        assert_eq!(max_dgram_size, 1160);
+        assert_eq!(max_dgram_size, MAX_SEND_UDP_PAYLOAD_SIZE - 40);
 
         let dgram_packet: Vec<u8> = vec![42; max_dgram_size];
 
@@ -11068,7 +11079,7 @@ mod tests {
             .set_application_protos(b"\x06proto1\x06proto2")
             .unwrap();
         // Larger than the client
-        server_config.set_max_send_udp_payload_size(1500);
+        server_config.set_max_send_udp_payload_size(1600);
 
         let mut pipe = testing::Pipe {
             client: connect(
@@ -11083,7 +11094,7 @@ mod tests {
         };
 
         // Before handshake
-        assert_eq!(pipe.server.recovery.max_datagram_size(), 1500);
+        assert_eq!(pipe.server.recovery.max_datagram_size(), 1600);
 
         assert_eq!(pipe.handshake(), Ok(()));
 
@@ -11142,11 +11153,14 @@ mod tests {
         assert_eq!(pipe.server.stream_recv(8, &mut buf), Ok((6, true)));
         assert_eq!(pipe.server.stream_recv(12, &mut buf), Ok((6, true)));
 
-        assert_eq!(pipe.server.tx_cap, 12000);
+        assert_eq!(pipe.server.tx_cap, MAX_SEND_UDP_PAYLOAD_SIZE * 10);
 
-        assert_eq!(pipe.server.stream_send(0, &buf[..5000], false), Ok(5000));
-        assert_eq!(pipe.server.stream_send(4, &buf[..5000], false), Ok(5000));
-        assert_eq!(pipe.server.stream_send(8, &buf[..5000], false), Ok(2000));
+        assert_eq!(pipe.server.stream_send(0, &buf[..6000], false), Ok(6000));
+        assert_eq!(pipe.server.stream_send(4, &buf[..6000], false), Ok(6000));
+        assert_eq!(
+            pipe.server.stream_send(8, &buf[..6000], false),
+            Ok(6000 - (18000 - MAX_SEND_UDP_PAYLOAD_SIZE * 10))
+        );
 
         // No more connection send capacity.
         assert_eq!(

@@ -1951,11 +1951,14 @@ mod tests {
 
         // We pace this outgoing packet. as all conditions for pacing
         // are passed.
-        assert_eq!(r.pacing_rate, (12000.0 / 0.05) as u64);
+        assert_eq!(
+            r.pacing_rate,
+            (crate::MAX_SEND_UDP_PAYLOAD_SIZE as f64 * 10. / 0.05) as u64
+        );
         assert_eq!(
             r.get_packet_send_time().unwrap(),
             now + Duration::from_micros(
-                (6500 * 1000000) / (12000.0 / 0.05) as u64
+                (6500 * 1000000) / (crate::MAX_SEND_UDP_PAYLOAD_SIZE as f64 * 10. / 0.05) as u64
             )
         );
     }
