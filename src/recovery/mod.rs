@@ -1842,7 +1842,7 @@ mod tests {
             time_sent: now,
             time_acked: None,
             time_lost: None,
-            size: 6500,
+            size: 7500,
             ack_eliciting: true,
             in_flight: true,
             delivered: 0,
@@ -1861,7 +1861,7 @@ mod tests {
         );
 
         assert_eq!(r.sent[packet::EPOCH_APPLICATION].len(), 1);
-        assert_eq!(r.bytes_in_flight, 6500);
+        assert_eq!(r.bytes_in_flight, 7500);
 
         // First packet will be sent out immidiately.
         assert_eq!(r.pacing_rate, 0);
@@ -1896,7 +1896,7 @@ mod tests {
             time_sent: now,
             time_acked: None,
             time_lost: None,
-            size: 6500,
+            size: 7500,
             ack_eliciting: true,
             in_flight: true,
             delivered: 0,
@@ -1915,7 +1915,7 @@ mod tests {
         );
 
         assert_eq!(r.sent[packet::EPOCH_APPLICATION].len(), 1);
-        assert_eq!(r.bytes_in_flight, 6500);
+        assert_eq!(r.bytes_in_flight, 7500);
 
         // Pacing is not done during intial phase of connection.
         assert_eq!(r.get_packet_send_time().unwrap(), now);
@@ -1927,7 +1927,7 @@ mod tests {
             time_sent: now,
             time_acked: None,
             time_lost: None,
-            size: 6500,
+            size: 7500,
             ack_eliciting: true,
             in_flight: true,
             delivered: 0,
@@ -1946,20 +1946,19 @@ mod tests {
         );
 
         assert_eq!(r.sent[packet::EPOCH_APPLICATION].len(), 2);
-        assert_eq!(r.bytes_in_flight, 13000);
+        assert_eq!(r.bytes_in_flight, 15000);
         assert_eq!(r.smoothed_rtt.unwrap(), Duration::from_millis(50));
 
         // We pace this outgoing packet. as all conditions for pacing
         // are passed.
-        assert_eq!(
-            r.pacing_rate,
-            (crate::MAX_SEND_UDP_PAYLOAD_SIZE as f64 * 10. / 0.05) as u64
-        );
+        let expected_rate = (
+            crate::MAX_SEND_UDP_PAYLOAD_SIZE as f64 * 10. / 0.05
+        ) as u64;
+
+        assert_eq!(r.pacing_rate, expected_rate);
         assert_eq!(
             r.get_packet_send_time().unwrap(),
-            now + Duration::from_micros(
-                (6500 * 1000000) / (crate::MAX_SEND_UDP_PAYLOAD_SIZE as f64 * 10. / 0.05) as u64
-            )
+            now + Duration::from_micros((7500 * 1000000) / expected_rate)
         );
     }
 }
